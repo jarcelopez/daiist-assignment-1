@@ -164,11 +164,17 @@ explain every decision in your submission as if you made it yourself,
 because you did. Using a tool to help write it doesn't transfer the
 understanding requirement to the tool.
 
+## Business case
+
+A buyer's agent in Ames checks an asking price before a client writes an offer. The model estimates the closing price from houses already sold, using only the house and the month and year of the search. It does not set the offer. If the ask sits well above the estimate, the agent calls the ask aggressive.
+
+The target is the recorded close, including family, abnormal, allocation, and adjoining-land sales, so the number is a conservative check rather than a fair-market appraisal. The split is 2006–2008 to train, 2009 to choose the penalty and learning rate, and 2010 to test, because a 2010 search cannot use 2010 closes. Models are compared by dollar RMSE after undoing the log, with dollar MAE beside it. There is no class threshold. Flagging an ask that beats the estimate by more than the typical dollar miss is the decision rule, but the file has no asking prices, so only the match to the eventual close can be measured.
+
+The same account is in `REPORT.md`. The notebook implements the rows, the split, the target, and the columns that follow from it. The three models are not trained yet.
+
 ## Preprocessing
 
-`train.ipynb` prepares the Ames sales and stops. The three models are not trained yet.
-
-The model is a price a buyer could look at before a deal is signed, using only earlier sales. The target is the recorded closing price, so family, abnormal, allocation, and adjoining-land sales stay. This is not a pure arm's-length appraisal.
+`train.ipynb` prepares the Ames sales and stops.
 
 ### Rows
 
