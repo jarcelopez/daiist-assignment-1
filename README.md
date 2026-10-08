@@ -163,3 +163,83 @@ None of this changes what's expected of you: you have to be able to
 explain every decision in your submission as if you made it yourself,
 because you did. Using a tool to help write it doesn't transfer the
 understanding requirement to the tool.
+
+## Preprocessing
+
+`train.ipynb` prepares the Ames sales and stops. The three models are not trained yet.
+
+The model is a price a buyer could look at before a deal is signed, using only earlier sales. The target is the recorded closing price, so family, abnormal, allocation, and adjoining-land sales stay. This is not a pure arm's-length appraisal.
+
+### Rows
+
+De Cock flags five houses with living area above 4,000 sq ft. Three are partial sales in Edwards (orders 1499, 2181, and 2182) priced far below what the size would suggest. Those three are removed before the split. The two Northridge houses stay, including the abnormal sale at $745,000, because it matches the normal Northridge sale at $755,000.
+
+Three date errors are corrected on the whole file. They are typos, not values learned from the training years:
+
+- One garage year is 2207. That house was built in 2006 and sold in 2007, so the year is set to 2007.
+- One house is marked remodeled in 2001 and built in 2002. The remodel year is set to 2002.
+- One kept sale has a remodel year after the sale year (two of the dropped partials had the same glitch). A later year is not known at the sale, so it is set back to the sale year.
+
+### Split and target
+
+- Train: sales from 2006–2008 (1,938 rows).
+- Validation: 2009 (648 rows), held out for the penalty and the learning rate.
+- Test: 2010 (341 rows). Sales stop in July, so this year is incomplete.
+
+Training uses `log(SalePrice)`. Raw price skew is about 1.74; log price skew is about 0. Dollar error is computed after exponentiating. The naive baseline is the training geometric mean, about $167,485.
+
+Neighborhood medians, rare levels, dummy columns, and the scaler are fit on 2006–2008 only.
+
+### What a blank means
+
+A blank in alley, basement quality and type, fireplace quality, garage type and finish, fence, and masonry type means that part of the house is absent. Those cells become `"None"`. No veneer with a missing area becomes area 0. No basement becomes basement area 0 and basement baths 0. No garage becomes garage area 0.
+
+Real gaps are filled from the training years:
+
+- Lot frontage: median of the same neighborhood, then the overall training median.
+- Masonry area when a veneer type is present: training median of that type.
+- Basement exposure and second finish type, when a basement exists: most common value among training houses with a basement.
+- The one missing electrical system: most common training value.
+- Two detached garages with incomplete records: median or most common value among training detached garages.
+
+### Columns left out
+
+- `Order` and `PID` are identifiers.
+- `Sale Condition` and `Sale Type` describe the deal, which is not known beforehand. Sale condition is used only to find the three partial sales.
+- `Street`, `Utilities`, `Condition 2`, `Roof Matl`, and `Heating` are almost constant.
+- `Exterior 2nd` repeats the exterior. `Pool QC` and `Misc Feature` are almost entirely blank; `Pool Area` and `Misc Val` stay.
+- `1st Flr SF`, `2nd Flr SF`, and `Low Qual Fin SF` add up to `Gr Liv Area`.
+- `Bsmt Unf SF` is the leftover of the basement total minus the finished areas.
+- `Garage Cars` repeats `Garage Area`.
+- `Year Built`, `Year Remod/Add`, and `Garage Yr Blt` are replaced by ages.
+
+### Features added
+
+- `Age` = year sold − year built.
+- `RemodAge` = year sold − year remodeled.
+- `GarageAge` = year sold − garage year, or 0 when there is no garage. Keeping the raw year would require inventing a construction date for those houses.
+
+`Mo Sold` and `Yr Sold` stay, because the month and year of the estimate are known. Year stays a number so 2009 and 2010 can extend a trend. A year indicator could not: those years never appear in training, so the indicator would be 0. Month is not a number, because December is not twelve times January.
+
+### Encoding
+
+Ordered fields become integers one step apart. Equal spacing is an assumption. A higher number is the more standard or more complete state, except land slope, where a higher number is steeper.
+
+| Field | Order |
+|---|---|
+| Quality fields | None 0, Po 1, Fa 2, TA 3, Gd 4, Ex 5 |
+| Basement exposure | None 0, No 1, Mn 2, Av 3, Gd 4 |
+| Basement finish type | None 0, Unf 1, LwQ 2, Rec 3, BLQ 4, ALQ 5, GLQ 6 |
+| Function | Sal 0, Sev 1, Maj2 2, Maj1 3, Mod 4, Min2 5, Min1 6, Typ 7 |
+| Garage finish | None 0, Unf 1, RFn 2, Fin 3 |
+| Lot shape | IR3 0, IR2 1, IR1 2, Reg 3 |
+| Land slope | Gtl 0, Mod 1, Sev 2 |
+| Paved drive | N 0, P 1, Y 2 |
+| Fence | None 0, MnWw 1, GdWo 2, MnPrv 3, GdPrv 4 |
+| Central air | N 0, Y 1 |
+
+Quality fields are exterior, basement, heating, kitchen, fireplace, and garage quality, plus exterior and basement condition.
+
+The remaining categories are one-hot encoded, including `MS SubClass` (it is a code, not a measurement) and month. A level with fewer than 10 training rows is renamed `Other`. Levels are sorted A to Z and the first is left out, so the intercept stands for it. After that grouping, 2009 and 2010 contain no category that training never saw.
+
+Every column, including the indicators, is standardized with a scaler fit on the training years. The matrix has 159 columns.
