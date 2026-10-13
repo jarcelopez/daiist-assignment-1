@@ -58,12 +58,35 @@ partials); near-constant fields; redundant area/car columns that duplicate
 by ages; `Pool QC` / `Misc Feature` (almost always blank) while keeping
 `Pool Area` and `Misc Val`.
 
-**Features added.** `Age`, `RemodAge`, and `GarageAge` (0 if no garage) so
-the model sees age at sale without inventing a build year for missing
-garages. `Mo Sold` and `Yr Sold` stay: the agent knows when the client is
-shopping. Year stays numeric so 2009–2010 can extend a trend; a year dummy
-would be all zeros out of sample. Month is categorical (December is not
-“12× January”).
+**Features added.** The model should see how old the house is at the sale,
+not the raw calendar years it was built or remodeled. So three ages replace
+those year columns:
+
+- `Age` = year sold − year built
+- `RemodAge` = year sold − year remodeled
+- `GarageAge` = year sold − garage year built, or **0** if the house has no
+  garage
+
+Houses without a garage have no garage build year. Filling that blank with
+a typical year would invent a construction date the house never had.
+`GarageAge = 0` means “no garage age,” which matches treating “no garage”
+as a real state rather than a missing number. The raw year columns are
+dropped after these ages are built so the same information is not counted
+twice.
+
+`Mo Sold` and `Yr Sold` are kept because the agent already knows when the
+client is shopping; month and year can move prices, and they are known
+before the offer (unlike sale type or sale condition). Encoding differs on
+purpose:
+
+- **Year stays a single number.** Training only sees 2006–2008. Validation
+  and test are 2009 and 2010. A one-hot year indicator for those later years
+  would be all zeros in training, so the model could never learn it. A
+  numeric year can still carry a rough time trend into years the model has
+  not trained on.
+- **Month is categorical (one-hot).** Treating month as 1…12 would tell the
+  model that December is twelve times January. Months are labels for season,
+  not a linear scale, so each month gets its own coefficient.
 
 **Encoding and scaling.** Ordered qualities become equally spaced integers
 (an assumption). Remaining categories, including `MS SubClass` and month,
@@ -75,27 +98,19 @@ scaler never see validation or test.
 
 ## Modeling: three implementations, one model
 
-The shared model is linear regression on `log(SalePrice)` — continuous
-target, same features for all three fits. Training minimizes error in log
-space; reported metrics convert predictions back to dollars (RMSE primary,
-MAE beside it). The naive baseline predicts the training geometric mean
-(~$167,485) for every house.
+The shared model is linear regression on `log(SalePrice)`, the continuous
+target. We used the same features for all three fits. Training minimizes error in log
+space, but reported metrics convert predictions back to dollars. The naive baseline predicts 
+the training geometric mean (~$167,485) for every house.
 
-**Tuning (validation 2009 only).** A small Ridge α grid picked α=30 (best
-val dollar RMSE among OLS and Ridge). Lasso was swept as a reference; it
-was slightly worse than Ridge on val and needs a proximal step the manual
-PyTorch loop does not have, so it is not the shared three-way model. For
+**Tuning** A small Ridge α grid picked α=30 due to it having the best
+val dollar RMSE among OLS and Ridge. Lasso was checked as a reference though it
+was slightly worse than Ridge on val. For
 both PyTorch trainers, learning rate was chosen on the same val set with
-α fixed at 30; lr=0.05 was best among finite runs (0.1 diverged). Test
+α fixed at 30; lr=0.05 was best among runs that converged (0.1 diverged). Test
 2010 was not used to pick α or lr.
 
-**Unregularized check.** Before Ridge, sklearn OLS and both PyTorch OLS
-loops already agreed closely on the same split. After Ridge, coefficients
-match sklearn within ~1e-11; the two PyTorch paths match each other to
-machine precision.
-
-**Results (dollar RMSE / MAE).** Val chose the model; test is the number
-that matters.
+**Results (dollar RMSE / MAE).** Val was used to chose the model. Test provides for us the relevant metrics.
 
 | Model | Train RMSE | Val RMSE | Test RMSE | Test MAE |
 |---|---:|---:|---:|---:|
@@ -104,42 +119,30 @@ that matters.
 | manual PyTorch Ridge | 17,765 | 19,156 | 21,153 | 15,150 |
 | standard PyTorch Ridge | 17,765 | 19,156 | 21,153 | 15,150 |
 
-The three graded fits agree. Versus OLS, Ridge improved val RMSE by about
-$90 (19,246 → 19,156) but test RMSE got slightly worse (21,077 → 21,153).
-Regularization was kept because selection used validation only; the test
-reversal is noted under Limitations.
+The three fits agree, because they are all equivalent implementations.
 
 ## Limitations & next steps
 
 **2010 is incomplete.** Sales stop in July, so test error mixes model
-quality with a shorter season. With a full later year, re-run the same
-calendar protocol before trusting the dollar numbers for year-end pricing.
+quality with a shorter season. We should attempt to find the full data for the year to obtain more accurate and reliable metrics.
 
-**No asking prices in the file.** The intended rule — flag an ask that
-exceeds the estimate by more than typical dollar MAE — cannot be tested
-here. Collect list vs close on new listings and score that rule directly.
+**No asking prices in the file.** We only have the close prices, which are very valuable data, but for future we could attempt to collect ask prices, which would help us get a feel of the ask-close spread.
 
 **Ordinal scores assume equal steps.** “Good” vs “excellent” may not match
-one integer step. Try learned embeddings or fewer bins if those fields
-dominate residuals.
-
-**Rare levels → `Other`.** Unusual neighborhoods or subclasses share one
-coefficient. With more data, raise the frequency cutoff or use target
-encoding fit on training folds only.
+one integer step. In future, attemot to collect quantitative rather than qualitative features.
 
 **Non-arms-length sales stay in the target.** Family and abnormal closes
 pull the estimate down on purpose for a conservative check. For a
-retail-only appraisal, filter to normal sales and refit — expect a higher
+retail-only appraisal, filter to normal sales and refit. We should expect a higher
 mean prediction and a different error profile.
 
 **Ridge’s validation gain is small and reversed on test.** α=30 beat OLS by
-about $90 RMSE on 2009 and lost about $76 on 2010. Treat regularization as
-stabilization, not a proven accuracy lift; with more years of validation,
-re-check whether α=0 is enough.
+about $90 RMSE on 2009 and lost about $76 on 2010.  We treat regularization as
+stabilization, not a proven accuracy lift. Having more years of validation,
+ we should re-check whether α=0 is enough.
 
 ## Generative AI use disclosure
 
-*TODO — complete in your own words.* Cursor was used for boilerplate,
-notebook/report formatting, and sanity-checking the tuning section.
+Cursor was used for implementation and notebook & report formatting.
 Dataset choice, business framing, split/metric decisions, feature
 engineering choices, and the conclusions in this report are mine.
